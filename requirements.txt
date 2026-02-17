@@ -1,16 +1,17 @@
 # ChefBot Recipe App - Python Dependencies
 # 
 # RECOMMENDED INSTALLATION (Conda + Pip Hybrid):
-#   1. conda create -n genai python=3.9 pytorch cpuonly spacy pandas numpy -c pytorch -c conda-forge -y
+#   1. conda create -n genai python=3.9 pytorch pytorch-cuda=12.1 spacy pandas numpy -c pytorch -c nvidia -c conda-forge -y
 #   2. conda activate genai
 #   3. pip install -r requirements.txt
 #
-# ALTERNATIVE (Pip-only - may have compilation issues):
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# ALTERNATIVE (Pip-only with CUDA support):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 #   pip install -r requirements.txt
 #   python -m spacy download en_core_web_lg
 
 # Core ML/NLP Libraries
+torch>=2.0.0  # See top comments for CUDA installation
 transformers==4.57.6
 accelerate>=1.10.0
 
