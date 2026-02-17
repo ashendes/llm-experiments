@@ -1,4 +1,5 @@
 import streamlit as st
+import torch
 import pandas as pd
 import spacy
 import os
@@ -17,8 +18,25 @@ except OSError:
     nlp = spacy.load("en_core_web_lg")
 
 model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-model = AutoModelForCausalLM.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+@st.cache_resource
+def load_llm(model_name):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Force loading weights to CPU then move to GPU to avoid meta tensor issues
+    # Using float16 for GPU efficiency
+    if device == "cuda":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, 
+            dtype=torch.float16
+        ).to(device)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_name)
+        
+    return model, device
+
+model, device = load_llm(model_name)
 
 # Download & Load Ingredient Data
 GDRIVE_FILE_URL = "https://drive.google.com/uc?id=1-qf8ZIrBlsEixBJULmXyDJk4M4ktRurH"
@@ -89,12 +107,16 @@ def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, top_k=50
         top_k=top_k,
         top_p=top_p,
     )
-    outputs = model.generate(tokenizer(input_text, return_tensors="pt")["input_ids"], 
+    outputs = model.generate(tokenizer(input_text, return_tensors="pt").to(device)["input_ids"], 
                              generation_config=generation_config)
     return tokenizer.decode(outputs[0], skip_special_tokens=True).replace(input_text, "").strip()
 
 #  Streamlit App UI
 st.title("🤖🧑🏻‍🍳 ChefBot: AI Recipe Chatbot")
+st.sidebar.markdown(f"**Device:** `{device.upper()}`")
+if device == "cuda":
+    st.sidebar.markdown(f"**GPU:** `{torch.cuda.get_device_name(0)}`")
+    
 ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
 cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
 if st.button("Generate Recipe", use_container_width=True) and ingredients:
