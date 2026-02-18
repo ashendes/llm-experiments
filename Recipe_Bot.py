@@ -92,6 +92,18 @@ def annoy_search_alternatives(ingredient):
 
 #  Generate Recipe
 def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, do_sample=False, top_k=50, top_p=1.0):
+    """Generate a recipe using the LLM with configurable generation parameters and prompt styles.
+    
+    Args:
+        ingredients: Comma-separated ingredient string
+        cuisine: Selected cuisine type
+        temperature: Controls randomness
+        num_beams: Number of beams for beam search
+        do_sample: Whether to use sampling
+        top_k: Limits vocabulary to top-k tokens at each step
+        top_p: Nucleus sampling threshold
+    """
+    
     input_text = (
         f"Ingredients: {', '.join(ingredients.split(', '))}\n"
         f"Cuisine: {cuisine}\n"
