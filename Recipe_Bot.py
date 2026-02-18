@@ -5,7 +5,7 @@ import spacy
 import os
 import gdown
 from annoy import AnnoyIndex
-import numpy as np
+import numpy as np 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 # Load models
@@ -91,7 +91,7 @@ def annoy_search_alternatives(ingredient):
     return 
 
 #  Generate Recipe
-def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, top_k=50, top_p=1.0):
+def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, do_sample=False, top_k=50, top_p=1.0):
     input_text = (
         f"Ingredients: {', '.join(ingredients.split(', '))}\n"
         f"Cuisine: {cuisine}\n"
@@ -101,7 +101,7 @@ def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, top_k=50
         max_length=250, 
         num_return_sequences=1, 
         repetition_penalty=1.2,
-        do_sample=True,
+        do_sample=do_sample,
         temperature=temperature,
         num_beams=num_beams,
         top_k=top_k,
@@ -116,11 +116,63 @@ st.title("🤖🧑🏻‍🍳 ChefBot: AI Recipe Chatbot")
 st.sidebar.markdown(f"**Device:** `{device.upper()}`")
 if device == "cuda":
     st.sidebar.markdown(f"**GPU:** `{torch.cuda.get_device_name(0)}`")
-    
+
 ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
 cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
+
+temperature = st.sidebar.select_slider(
+    "Temperature:",
+    options=[0.5, 1.0, 2.0],
+    value=1.0
+)
+
+decoding_strategy = st.sidebar.radio(
+    "Decoding Strategy:",
+    options=["Greedy", "Beam Search"],
+    index=0
+)
+num_beams = st.sidebar.slider(
+    "Number of Beams:",
+    min_value=1,
+    max_value=10,
+    value=1 if decoding_strategy == "Greedy" else 5,
+    disabled=decoding_strategy == "Greedy"
+)
+
+do_sample = st.sidebar.checkbox("Enable Sampling: ", value=False)
+top_k = st.sidebar.select_slider(
+    "Top-K:",
+    options=[5, 50],
+    value=50,
+    disabled=not do_sample
+)
+
+top_p = st.sidebar.select_slider(
+    "Top-P:",
+    options=[0.7, 0.95, 1.0],
+    value=1.0,
+    disabled=not do_sample
+)
+
+#  Display current config summary
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Current Config:**")
+st.sidebar.markdown(f"- Temperature: `{temperature}`")
+st.sidebar.markdown(f"- Decoding Strategy: `{decoding_strategy}`")
+st.sidebar.markdown(f"- Number of Beams: `{num_beams}`")
+st.sidebar.markdown(f"- Sampling: `{do_sample}`")
+st.sidebar.markdown(f"- Top-K: `{top_k}`, Top-P: `{top_p}`")
+
 if st.button("Generate Recipe", use_container_width=True) and ingredients:
-    st.session_state["recipe"] = generate_recipe(ingredients, cuisine)
+    st.session_state["recipe"] = generate_recipe(
+        ingredients, 
+        cuisine, 
+        temperature=temperature,
+        num_beams=num_beams,
+        do_sample=do_sample,
+        top_k=top_k,
+        top_p=top_p
+    )
 
 if "recipe" in st.session_state:
     st.markdown("### 🍽️ Generated Recipe:")
