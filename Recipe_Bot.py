@@ -33,12 +33,11 @@ def load_llm(model_name):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Force loading weights to CPU then move to GPU to avoid meta tensor issues
-    # Using float16 for GPU efficiency
     if device == "cuda":
         model = AutoModelForCausalLM.from_pretrained(
             model_name, 
             token=token,
-            dtype=torch.float16,
+            dtype=torch.float16,        # Using float16 for GPU efficiency
         ).to(device)
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -96,13 +95,14 @@ def cosine_similarity(vec1, vec2):
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)) if np.any(vec1) and np.any(vec2) else 0
 
 def direct_search_alternatives(ingredient):
-    """Find top-3 similar ingredients using brute-force cosine similarity.
+    """
+    Find top-3 similar ingredients using brute-force cosine similarity.
 
-        Args:
-            ingredient: The ingredient to find alternatives for
-        
-        Returns:
-            A list of the top-3 most similar ingredients
+    Args:
+        ingredient: The ingredient to find alternatives for
+    
+    Returns:
+        A list of the top-3 most similar ingredients
     """
     # Get the vector embedding for the input ingredient
     input_vec = nlp(ingredient.lower()).vector
@@ -131,13 +131,14 @@ def direct_search_alternatives(ingredient):
 
 #  Annoy Search (Fixed for Correct Cosine Similarity)
 def annoy_search_alternatives(ingredient):
-    """Find top-3 similar ingredients using Annoy approximate nearest neighbors.
+    """
+    Find top-3 similar ingredients using Annoy approximate nearest neighbors.
 
-        Args:
-            ingredient: The ingredient to find alternatives for
-        
-        Returns:
-            A list of the top-3 most similar ingredients
+    Args:
+        ingredient: The ingredient to find alternatives for
+    
+    Returns:
+        A list of the top-3 most similar ingredients
     """
     # Build Annoy index
     annoy_index = build_annoy_index()
@@ -173,7 +174,8 @@ def generate_recipe(ingredients,
                     do_sample=False, 
                     top_k=50, 
                     top_p=1.0):
-    """Generate a recipe using the LLM with configurable generation parameters and prompt styles.
+    """
+    Generate a recipe using the LLM with configurable generation parameters and prompt styles.
     
     Args:
         ingredients: Comma-separated ingredient string
@@ -246,7 +248,8 @@ def generate_recipe(ingredients,
 # Task 5 - Recipe Remix
 # =======================
 def get_remixed_ingredients(ingredients, num_swaps=2):
-    """Swap random ingredients with similar alternatives using Annoy search.
+    """
+    Swap random ingredients with similar alternatives using Annoy search.
     
     Args:
         ingredients: Comma-separated ingredient string
@@ -325,6 +328,7 @@ st.sidebar.markdown(f"- Decoding Strategy: `{decoding_strategy}`")
 st.sidebar.markdown(f"- Number of Beams: `{num_beams}`")
 st.sidebar.markdown(f"- Sampling: `{do_sample}`")
 st.sidebar.markdown(f"- Top-K: `{top_k}`, Top-P: `{top_p}`")
+
 
 ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
 cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
