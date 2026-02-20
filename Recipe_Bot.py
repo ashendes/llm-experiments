@@ -17,8 +17,14 @@ except OSError:
     download("en_core_web_lg")
     nlp = spacy.load("en_core_web_lg")
 
-model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+# model_name = "Qwen/Qwen3-0.6B-Base"
+model_name = "meta-llama/Llama-3.2-1B-Instruct"
+token = os.getenv("HF_TOKEN")
+
+tokenizer = AutoTokenizer.from_pretrained(
+    model_name,
+    token=token
+)
 
 @st.cache_resource
 def load_llm(model_name):
@@ -29,10 +35,14 @@ def load_llm(model_name):
     if device == "cuda":
         model = AutoModelForCausalLM.from_pretrained(
             model_name, 
-            dtype=torch.float16
+            token=token,
+            dtype=torch.float16,
         ).to(device)
     else:
-        model = AutoModelForCausalLM.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            token=token,
+        )
         
     return model, device
 
@@ -91,40 +101,107 @@ def annoy_search_alternatives(ingredient):
     return 
 
 #  Generate Recipe
-def generate_recipe(ingredients, cuisine, temperature=1.0, num_beams=1, do_sample=False, top_k=50, top_p=1.0):
+def generate_recipe(ingredients, 
+                    cuisine, 
+                    format_response=False,
+                    response_detail_level="Brief",
+                    creative_level="Basic",
+                    temperature=1.0, 
+                    num_beams=1, 
+                    do_sample=False, 
+                    top_k=50, 
+                    top_p=1.0):
     """Generate a recipe using the LLM with configurable generation parameters and prompt styles.
     
     Args:
         ingredients: Comma-separated ingredient string
         cuisine: Selected cuisine type
+        format_response: Whether to generate a structured response with title, ingredients, and instructions
+        response_detail_level: Level of detail for the recipe (Brief or Detailed)
+        creative_level: Level of creativity for the recipe (Basic or Surprise Me!)
         temperature: Controls randomness
         num_beams: Number of beams for beam search
         do_sample: Whether to use sampling
         top_k: Limits vocabulary to top-k tokens at each step
         top_p: Nucleus sampling threshold
     """
+
+    #  Format Response Prompt
+    if format_response:
+        format_text = (f"Format the response **EXACTLY** as follows: \n"
+                       f"Recipe Name: [Recipe Name]\n"
+                       f"Ingredients: [Ingredients]\n"
+                       f"Instructions: [Instructions]\n"
+                       f"Do not include any other text.\n")
+    else:
+        format_text = ""
+
+    #  Recipe Detail Prompt
+    if response_detail_level == "Brief":
+        detail_text = "brief 3-4 sentence recipe without extra details"
+    elif response_detail_level == "Detailed":
+        detail_text = "highly detailed recipe with descriptive instructions"
+    else:
+        detail_text = "recipe"
+
+    #  Recipe Creative Prompt
+    if creative_level == "Basic":
+        creative_text = f"Generate a {detail_text} inspired by {cuisine} cuisine with these ingredients.\n"
+    else:
+        creative_text = (f"You are an adventurous, world-class fusion chef. Create a surprising and unconventional "
+                         f"{detail_text} inspired by {cuisine} cuisine with the ingredients below. Combine "
+                         f"unexpected flavors, unusual cooking techniques, innovative presentation styles, and give the "
+                         f"dish a fun name.\n")
     
-    input_text = (
-        f"Ingredients: {', '.join(ingredients.split(', '))}\n"
-        f"Cuisine: {cuisine}\n"
-        f"Let's create a dish inspired by {cuisine} cuisine with these ingredients. Here are the preparation and cooking instructions:"
-    )    
-    generation_config = GenerationConfig(
-        max_length=250, 
-        num_return_sequences=1, 
+    #  Final Input Prompt
+    input_text = (f"{creative_text}\n"
+                  f"Ingredients: {', '.join(ingredients.split(', '))}\n"
+                  f"Do not reference any images or visual content.\n"   # Prevent Llama from referencing images
+                  f"{format_text}\n"
+                #   f"Here are the recipe and instructions: "
+                )
+    
+    input_ids = tokenizer(input_text, return_tensors="pt").to(device)["input_ids"]
+    attention_mask = torch.ones_like(input_ids)  # Fixes attention mask warning
+
+    outputs = model.generate(
+        input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=500,
+        num_return_sequences=1,
         repetition_penalty=1.2,
         do_sample=do_sample,
         temperature=temperature,
         num_beams=num_beams,
         top_k=top_k,
         top_p=top_p,
+        pad_token_id=tokenizer.eos_token_id,  # Fix eos token warning
     )
-    outputs = model.generate(tokenizer(input_text, return_tensors="pt").to(device)["input_ids"], 
-                             generation_config=generation_config)
-    return tokenizer.decode(outputs[0], skip_special_tokens=True).replace(input_text, "").strip()
+    return input_text, tokenizer.decode(outputs[0], skip_special_tokens=True).replace(input_text, "").strip()
+
+
+
+# Task 5 - Recipe Remix
+
+def get_remixed_ingredients(ingredients):
+    ing_list = [ing.strip().lower() for ing in ingredients.split(",")]
+
+    ing_to_swap = random.sample(ing_list, min(2, len(ing_list)))
+
+    subs = {}
+    for ing in ing_to_swap:
+        subs[ing] = annoy_search_alternatives(ing)[-1]
+
+    new_ingredients = [subs.get(ing, ing) for ing in ing_list]
+
+    return ",".join(new_ingredients)
+
 
 #  Streamlit App UI
 st.title("🤖🧑🏻‍🍳 ChefBot: AI Recipe Chatbot")
+
+# Sidebar Environment Info
+st.sidebar.markdown(f"**Model:** `{model_name}`")
 st.sidebar.markdown(f"**Device:** `{device.upper()}`")
 if device == "cuda":
     st.sidebar.markdown(f"**GPU:** `{torch.cuda.get_device_name(0)}`")
@@ -132,6 +209,13 @@ if device == "cuda":
 ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
 cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
 
+# Response control parameters
+format_response = st.checkbox("Format response (Title, ingredients, and instructions)", value=False)
+response_detail_level = st.selectbox("Response detail level:", ["Brief", "Normal", "Detailed"], index=0)
+creative_level = st.selectbox("Creativity Level: ",["Basic", "Surprise Me!"], index=0)
+
+# Generation Parameters in sidebar
+st.sidebar.header("Generation Parameters")
 temperature = st.sidebar.select_slider(
     "Temperature:",
     options=[0.5, 1.0, 2.0],
@@ -176,9 +260,28 @@ st.sidebar.markdown(f"- Sampling: `{do_sample}`")
 st.sidebar.markdown(f"- Top-K: `{top_k}`, Top-P: `{top_p}`")
 
 if st.button("Generate Recipe", use_container_width=True) and ingredients:
-    st.session_state["recipe"] = generate_recipe(
+    st.session_state["input_text"], st.session_state["recipe"] = generate_recipe(
         ingredients, 
         cuisine, 
+        format_response=format_response,
+        response_detail_level=response_detail_level,
+        creative_level=creative_level,
+        temperature=temperature,
+        num_beams=num_beams,
+        do_sample=do_sample,
+        top_k=top_k,
+        top_p=top_p
+    )
+
+disable_remix = "recipe" not in st.session_state or not st.session_state["recipe"] or not ingredients
+if st.button("Remix Recipe", use_container_width=True, disabled=disable_remix):
+    ingredients = get_remixed_ingredients(ingredients)
+    st.session_state["input_text"], st.session_state["recipe"] = generate_recipe(
+        ingredients,
+        cuisine, 
+        format_response=format_response,
+        response_detail_level=response_detail_level,
+        creative_level=creative_level,
         temperature=temperature,
         num_beams=num_beams,
         do_sample=do_sample,
@@ -188,6 +291,7 @@ if st.button("Generate Recipe", use_container_width=True) and ingredients:
 
 if "recipe" in st.session_state:
     st.markdown("### 🍽️ Generated Recipe:")
+    st.text_area("Updated Prompt:", st.session_state["input_text"], height=200)
     st.text_area("Recipe:", st.session_state["recipe"], height=200)
 
     st.download_button(label="📂 Save Recipe", 
@@ -207,6 +311,10 @@ if "recipe" in st.session_state:
             "Annoy (Fastest)": annoy_search_alternatives,
             "Direct Search (Best Accuracy)": direct_search_alternatives
         }
+        start_time = time.time()
         alternatives = search_methods[search_method](ingredient_to_replace)
+        end_time = time.time()
+        execution_time = end_time - start_time        
         st.markdown(f"### 🌿 Alternatives for **{ingredient_to_replace.capitalize()}**:")
         st.markdown(f"➡️ {' ⟶ '.join(alternatives)}")
+        st.markdown(f"Time taken: {execution_time:.4f} seconds")

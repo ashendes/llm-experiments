@@ -35,4 +35,5 @@ gdown>=5.2.0,<6.0.0
 sympy==1.13.1  # Required by PyTorch 2.5.1
 huggingface-hub>=0.34.0,<1.0.0
 tokenizers>=0.22.0,<=0.23.0
-safetensors>=0.4.3  
+safetensors>=0.4.3
+python-dotenv>=1.0.0
