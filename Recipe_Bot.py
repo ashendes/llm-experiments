@@ -7,6 +7,8 @@ import gdown
 from annoy import AnnoyIndex
 import numpy as np 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import random
+import time
 
 # Load models
 try:
@@ -240,22 +242,35 @@ def generate_recipe(ingredients,
     return input_text, tokenizer.decode(outputs[0], skip_special_tokens=True).replace(input_text, "").strip()
 
 
-
+# =======================
 # Task 5 - Recipe Remix
-
-def get_remixed_ingredients(ingredients):
+# =======================
+def get_remixed_ingredients(ingredients, num_swaps=2):
+    """Swap random ingredients with similar alternatives using Annoy search.
+    
+    Args:
+        ingredients: Comma-separated ingredient string
+        num_swaps: Number of ingredients to swap
+    
+    Returns:
+        Tuple of (new ingredient , dict of substitutions made)
+    """
     ing_list = [ing.strip().lower() for ing in ingredients.split(",")]
-
-    ing_to_swap = random.sample(ing_list, min(2, len(ing_list)))
+    # Select random ingredients to swap
+    ing_to_swap = random.sample(ing_list, min(num_swaps, len(ing_list)))
 
     subs = {}
+    # Find alternatives for each ingredient to swap
     for ing in ing_to_swap:
-        subs[ing] = annoy_search_alternatives(ing)[-1]
+        alts = annoy_search_alternatives(ing)
+        if alts and alts[0] != "Invalid ingredient":
+            subs[ing] = random.choice(alts)
 
+    # Substitute ingredients in original list
     new_ingredients = [subs.get(ing, ing) for ing in ing_list]
+    return ", ".join(new_ingredients), subs
 
-    return ",".join(new_ingredients)
-
+# ===========================
 
 #  Streamlit App UI
 st.title("🤖🧑🏻‍🍳 ChefBot: AI Recipe Chatbot")
@@ -265,14 +280,6 @@ st.sidebar.markdown(f"**Model:** `{model_name}`")
 st.sidebar.markdown(f"**Device:** `{device.upper()}`")
 if device == "cuda":
     st.sidebar.markdown(f"**GPU:** `{torch.cuda.get_device_name(0)}`")
-
-ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
-cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
-
-# Response control parameters
-format_response = st.checkbox("Format response (Title, ingredients, and instructions)", value=False)
-response_detail_level = st.selectbox("Response detail level:", ["Brief", "Normal", "Detailed"], index=0)
-creative_level = st.selectbox("Creativity Level: ",["Basic", "Surprise Me!"], index=0)
 
 # Generation Parameters in sidebar
 st.sidebar.header("Generation Parameters")
@@ -319,45 +326,89 @@ st.sidebar.markdown(f"- Number of Beams: `{num_beams}`")
 st.sidebar.markdown(f"- Sampling: `{do_sample}`")
 st.sidebar.markdown(f"- Top-K: `{top_k}`, Top-P: `{top_p}`")
 
-if st.button("Generate Recipe", use_container_width=True) and ingredients:
-    st.session_state["input_text"], st.session_state["recipe"] = generate_recipe(
-        ingredients, 
-        cuisine, 
-        format_response=format_response,
-        response_detail_level=response_detail_level,
-        creative_level=creative_level,
-        temperature=temperature,
-        num_beams=num_beams,
-        do_sample=do_sample,
-        top_k=top_k,
-        top_p=top_p
-    )
+ingredients = st.text_input("🥑🥦🥕 Ingredients (comma-separated):")
+cuisine = st.selectbox("Select a cuisine:", ["Any", "Asian", "Indian", "Middle Eastern", "Mexican",  "Western", "Mediterranean", "African"])
 
-disable_remix = "recipe" not in st.session_state or not st.session_state["recipe"] or not ingredients
-if st.button("Remix Recipe", use_container_width=True, disabled=disable_remix):
-    ingredients = get_remixed_ingredients(ingredients)
-    st.session_state["input_text"], st.session_state["recipe"] = generate_recipe(
-        ingredients,
-        cuisine, 
-        format_response=format_response,
-        response_detail_level=response_detail_level,
-        creative_level=creative_level,
-        temperature=temperature,
-        num_beams=num_beams,
-        do_sample=do_sample,
-        top_k=top_k,
-        top_p=top_p
-    )
+# Response control parameters
+format_response = st.checkbox("Format response (Title, ingredients, and instructions)", value=False)
+response_detail_level = st.selectbox("Response detail level:", ["Brief", "Normal", "Detailed"], index=0)
+creative_level = st.selectbox("Creativity Level: ",["Basic", "Surprise Me!"], index=0)
+
+if st.button("Generate Recipe", use_container_width=True) and ingredients:
+    with st.spinner("Generating recipe..."):
+        st.session_state["input_text"], st.session_state["recipe"] = generate_recipe(
+            ingredients, 
+            cuisine, 
+            format_response=format_response,
+            response_detail_level=response_detail_level,
+            creative_level=creative_level,
+            temperature=temperature,
+            num_beams=num_beams,
+            do_sample=do_sample,
+            top_k=top_k,    
+            top_p=top_p
+        )
 
 if "recipe" in st.session_state:
     st.markdown("### 🍽️ Generated Recipe:")
-    st.text_area("Updated Prompt:", st.session_state["input_text"], height=200)
+    st.text_area("Prompt Used:", st.session_state["input_text"], height=200)
     st.text_area("Recipe:", st.session_state["recipe"], height=200)
 
     st.download_button(label="📂 Save Recipe", 
                        data=st.session_state["recipe"], 
                        file_name="recipe.txt", 
                        mime="text/plain")
+
+    # ============================
+    # Smart Recipe Remix  Feature
+    # ============================
+    st.markdown("---")
+    st.markdown("## Smart Recipe Remix")
+
+    # Slider to select the number of ingredients to swap
+    num_swaps = st.slider(
+        "Number of ingredients to swap:",
+        min_value=1,
+        max_value=min(3, len([i for i in ingredients.split(",")])),
+        value=1,
+    )
+
+    # Button to generate remixed recipe
+    if st.button("Remix Recipe!", use_container_width=True):
+        remixed_str, subs = get_remixed_ingredients(ingredients, num_swaps)
+
+        if not subs:
+            st.error("No valid substitutions found. Try different ingredients.")
+        else:
+            # Show substitutions
+            st.markdown("### Substitutions:")
+            for orig, sub in subs.items():
+                st.markdown(f"- {orig.capitalize()} ⟶ {sub.capitalize()}")
+
+            # Generate remixed recipe
+            with st.spinner("Generating remixed recipe..."):
+                _, remixed_recipe = generate_recipe(
+                    remixed_str, cuisine,
+                    format_response=format_response,
+                    response_detail_level=response_detail_level,
+                    creative_level=creative_level,
+                    temperature=temperature,
+                    num_beams=num_beams,
+                    do_sample=do_sample,
+                    top_k=top_k,
+                    top_p=top_p
+                )
+
+            # Side-by-side comparison
+            st.markdown("### Original vs Remixed")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Original** — {ingredients}")
+                st.text_area("Original:", st.session_state["recipe"], height=300)
+            with col2:
+                st.markdown(f"**Remixed** — {remixed_str}")
+                st.text_area("Remixed:", remixed_recipe, height=300)
+    # =============================================================================
 
     #  Alternative Ingredient Section
     st.markdown("---")
