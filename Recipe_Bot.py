@@ -94,11 +94,71 @@ def cosine_similarity(vec1, vec2):
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)) if np.any(vec1) and np.any(vec2) else 0
 
 def direct_search_alternatives(ingredient):
-    return 
+    """Find top-3 similar ingredients using brute-force cosine similarity.
+
+        Args:
+            ingredient: The ingredient to find alternatives for
+        
+        Returns:
+            A list of the top-3 most similar ingredients
+    """
+    # Get the vector embedding for the input ingredient
+    input_vec = nlp(ingredient.lower()).vector
+
+    # Check if the vector is valid
+    if not np.any(input_vec):
+        return ["Invalid ingredient"]
+
+    # Compute cosine similarity with every ingredient in the list
+    similarities = []
+    for i, ing in enumerate(filtered_ingredient_list):
+        sim = cosine_similarity(input_vec, ingredient_vectors[i])
+        similarities.append((ing, sim))
+
+    # Sort by similarity score in descending order
+    similarities.sort(key=lambda x: x[1], reverse=True)
+
+    # Return top-3, exclude input if exists
+    results = []
+    for ing, sim in similarities:
+        if ing.lower() != ingredient.lower():
+            results.append(ing)
+            if len(results) >= 3:
+                break
+    return results
 
 #  Annoy Search (Fixed for Correct Cosine Similarity)
 def annoy_search_alternatives(ingredient):
-    return 
+    """Find top-3 similar ingredients using Annoy approximate nearest neighbors.
+
+        Args:
+            ingredient: The ingredient to find alternatives for
+        
+        Returns:
+            A list of the top-3 most similar ingredients
+    """
+    # Build Annoy index
+    annoy_index = build_annoy_index()
+    
+    # Get the vector embedding for the input ingredient
+    input_vec = nlp(ingredient.lower()).vector
+
+    # Check if the vector is valid
+    if not np.any(input_vec):
+        return ["Invalid ingredient"]
+
+    # Get the top 4 nearest neighbors (4 to ensure 3 unique results)
+    top4_indices = annoy_index.get_nns_by_vector(input_vec, 4)
+    
+    results = []
+    # Return top-3, exclude input if exists
+    for index in top4_indices:
+        if ingredient.lower() != filtered_ingredient_list[index].lower():
+            results.append(filtered_ingredient_list[index])
+            if len(results) >= 3:
+                break
+    return results
+
 
 #  Generate Recipe
 def generate_recipe(ingredients, 
