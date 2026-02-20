@@ -9,6 +9,9 @@ import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 import random
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Load models
 try:
